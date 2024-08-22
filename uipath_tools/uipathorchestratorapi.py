@@ -1,11 +1,11 @@
 import requests
-
+import json
 
 class UiPathConnection:
 
     """Base class for initial functions and storing authentication credentials"""
 
-    def __init__(self, url, tenant, username, password, cloud=False, tenant_logical_name='', client_id='', user_key=''):
+    def __init__(self, url, orgname, username, password, oauth=False, tenant_logical_name='', client_id='', client_secret='', scope=''):
 
         """Initialize the class
 
@@ -26,77 +26,79 @@ class UiPathConnection:
 
         """
         self.base_url = url
-        self.tenant = tenant
-        self.cloud = cloud
+        self.orgname = orgname
+        self.oauth = oauth
         self.tenant_logical_name = tenant_logical_name
-        self.token = self._authenticate(username, password, tenant, tenant_logical_name, client_id, user_key)
+        self.token = self._authenticate(username, password, orgname, tenant_logical_name, client_id, client_secret, scope)
+        print(self.token)
 
-    def _authenticate(self, username, password, tenant, tenant_logical_name, client_id, user_key):
+    def _authenticate(self, username, password, orgname, tenant_logical_name, client_id, client_secret, scope):
 
         """Authenticate. This will store the token for future usage as the authentication method for UiPath Rest
         API is Bearer Token authentication.
 
-        There are two types of authentication.  One for cloud environments and one for on-premise.  The following
+        There are two types of authentication.  One for cloud or automation suite environments and one for Legacy Windows orchestrator.  The following
         accounts for this.
 
         """
 
-        if self.cloud:
-            payload = str(
-                {"grant_type": "refresh_token",
-                 "client_id": client_id,
-                 "refresh_token": user_key}
-            )
-            headers = {'content-type': 'application/json', 'X-UIPATH-TenantName': tenant_logical_name}
-            url = 'https://account.uipath.com/oauth/token'
-            r = requests.post(url, data=payload, headers=headers)
-            print(r)
-
+        if self.oauth:
+            endpoint = f"{self.base_url}/identity_/connect/token"
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+             
+            payload = f"grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}&scope={scope}"
+            r = requests.post( endpoint, data=payload, headers=headers, verify=False)
+            #print( endpoint, payload, r, r.text)
+            if r.status_code == 200:
+                return_value = r.json()
+                print('Authenticated')
+                return return_value['access_token']
         else:
             payload = str(
-                    {"tenancyName": tenant,
+                    {"tenancyName": orgname,
                      "usernameOrEmailAddress": username,
                      "password": password}
                          )
             headers = {'content-type': 'application/json'}
             url = self.base_url + '/api/Account/Authenticate'
-            r = requests.post(url, data=payload, headers=headers)
+            r = requests.post(url, data=payload, headers=headers, verify=False)
 
-        if r.status_code == 200:
-            return_value = r.json()
-            print('Authenticated')
-            return return_value['result']
+            if r.status_code == 200:
+                return_value = r.json()
+                print('Authenticated')
+                return return_value['result']
+            else:
+                raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
 
-        else:
-            raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
-
-    def get_release_key(self, job_name):
-
+    def get_release_key(self, folder, job_name):
+        ''' Get process release key '''
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + f'/odata/Releases?$filter=contains(Name, \'{job_name}\')'
-        headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Releases?$filter=contains(Name, \'{job_name}\')'
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.token,'X-UIPATH-OrganizationUnitId': folder['Id']}
 
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, verify=False)
         result = r.json()
 
         try:
             release_key = result['value'][0]['Key']
+        except KeyError:
+            print(result) 
         except IndexError:
+            print(result)
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
 
         return release_key
 
-    def start_job(self, release_key, inputs=None):
-
+    def start_job(self, release_key, folder, inputs=None):
         """Starts a job with the given release key"""
 
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + '/odata/Jobs/UiPath.Server.Configuration.OData.StartJobs'
-        headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Jobs/UiPath.Server.Configuration.OData.StartJobs'
+        headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token, 'X-UIPATH-OrganizationUnitId': folder['Id']}
 
         if inputs is not None:
             payload = str(
@@ -131,7 +133,7 @@ class UiPathConnection:
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + f'/odata/Jobs?$filter=contains(ReleaseName, \'{release_name}\') and State eq \'Running\''
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Jobs?$filter=contains(ReleaseName, \'{release_name}\') and State eq \'Running\''
         headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
 
         r = requests.get(url, headers=headers)
@@ -150,7 +152,6 @@ class UiPathConnection:
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
 
     def stop_job(self, release_name):
-
         """This will hard kill a job that needs to be stopped"""
 
         if self.token is None:
@@ -158,7 +159,7 @@ class UiPathConnection:
 
         job_id = self._get_running_job_id(release_name)
 
-        url = self.base_url + f'/odata/Jobs({job_id})/UiPath.Server.Configuration.OData.StopJob'
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Jobs({job_id})/UiPath.Server.Configuration.OData.StopJob'
         headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
         payload = str({
                         "strategy": "Kill"
@@ -171,14 +172,13 @@ class UiPathConnection:
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
 
     def start_transaction(self, queue_name):
-
         """This will start the most recent transaction for this queue.  You can add variables but that has
         not been implemented just yet"""
 
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + '/odata/Queues/UiPathODataSvc.StartTransaction'
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Queues/UiPathODataSvc.StartTransaction'
         headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
         payload = str({
                 "transactionData": {
@@ -199,7 +199,7 @@ class UiPathConnection:
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + '/odata/Machines'
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Machines'
         headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
         payload = str({
                       "Name": machine_name,
@@ -221,7 +221,7 @@ class UiPathConnection:
         if self.token is None:
             raise ValueError("You must authenticate first")
 
-        url = self.base_url + '/odata/Robots'
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Robots'
         headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + self.token}
         payload = str({
                         "MachineName": machine_name,
@@ -238,3 +238,55 @@ class UiPathConnection:
             print('Robot has successfully been created')
         else:
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
+
+            
+    def get_folders(self):
+        '''This get all folder information'''
+        folders = []
+
+        if self.token is None:
+            raise ValueError("You must authenticate first")
+
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Folders'
+        #print(url)
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.token}
+
+        r = requests.get(url, headers=headers, verify=False)
+        #print(r.status_code, r.text)
+        result = r.json()
+
+        if r.status_code == 200:
+            for f in result['value']:
+                folders.append( { 'FullyQualifiedName': f['FullyQualifiedName'], 'Id':f['Id']})
+            return folders
+        else:
+            raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
+
+
+    def add_queue_items(self, queue_name, folder, item):
+        ''' Add queue item on specific queue'''
+        payload = {
+            'itemData': {
+                'Name': queue_name,
+                'SpecificContent': {
+                },
+                'Reference': "PostOffice"
+            }
+        }
+        for kv in item.keys():
+            payload['itemData']['SpecificContent'][kv] = item[kv]
+        if self.token is None:
+            raise ValueError("You must authenticate first")
+
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/Queues/UiPathODataSvc.AddQueueItem'
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.token, 'X-UIPATH-OrganizationUnitId': str(folder['Id'])}
+
+        r = requests.post(url, headers=headers, json=payload, verify=False)
+        print(r.status_code, r.text)
+        result = r.json()
+
+        if r.status_code == 201:
+            print("new QueueItem sucessfully added")
+        else:
+            raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
+
