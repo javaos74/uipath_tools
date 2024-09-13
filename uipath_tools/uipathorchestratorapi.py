@@ -252,7 +252,7 @@ class UiPathConnection:
         headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.token}
 
         r = requests.get(url, headers=headers, verify=False)
-        #print(r.status_code, r.text)
+        print(r.status_code, r.text)
         result = r.json()
 
         if r.status_code == 200:
@@ -263,14 +263,14 @@ class UiPathConnection:
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
 
 
-    def add_queue_items(self, queue_name, folder, item):
+    def add_queue_items(self, queue_name, folder, reference, item):
         ''' Add queue item on specific queue'''
         payload = {
             'itemData': {
                 'Name': queue_name,
                 'SpecificContent': {
                 },
-                'Reference': "PostOffice"
+                'Reference': reference
             }
         }
         for kv in item.keys():
@@ -289,4 +289,26 @@ class UiPathConnection:
             print("new QueueItem sucessfully added")
         else:
             raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
+        return result
 
+    def get_queueitem_status(self, key, folder):
+        ''' Get queueitem status '''
+        payload = {
+            
+        } 
+        if self.token is None:
+            raise ValueError("You must authenticate first")
+
+        url = f'{self.base_url}/{self.orgname}/{self.tenant_logical_name}/orchestrator_/odata/QueueItems({key})'
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.token, 'X-UIPATH-OrganizationUnitId': str(folder['Id'])}
+
+        r = requests.get(url, headers=headers, json=payload, verify=False)
+        print(r.status_code, r.text)
+        if r.status_code == 200:
+            print("GetQueueItems successfully processed")
+            result = r.json()
+            return result
+        else:
+            raise ValueError("Server Error: " + str(r.status_code) + '.  ' + r.json()['message'])
+
+       

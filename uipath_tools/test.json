@@ -1,0 +1,36 @@
+{
+    "@odata.context": "https://aks.myrobots.co.kr/demo/demo/orchestrator_/odata/$metadata#Folders",
+    "@odata.count": 2,
+    "value": [
+        {
+            "Key": "5a5ac7a9-86ac-4f74-9679-200a1bd70f07",
+            "DisplayName": "Shared",
+            "FullyQualifiedName": "Shared",
+            "FullyQualifiedNameOrderable": "Shared",
+            "Description": null,
+            "FolderType": "Standard",
+            "ProvisionType": "Automatic",
+            "PermissionModel": "FineGrained",
+            "ParentId": null,
+            "ParentKey": null,
+            "IsActive": true,
+            "FeedType": "Processes",
+            "Id": 2
+        },
+        {
+            "Key": "2d03a45a-036a-46d9-b6a7-5104de9ccd95",
+            "DisplayName": "Test",
+            "FullyQualifiedName": "Test",
+            "FullyQualifiedNameOrderable": "Test",
+            "Description": "테스트 사용자 폴더",
+            "FolderType": "Standard",
+            "ProvisionType": "Automatic",
+            "PermissionModel": "FineGrained",
+            "ParentId": null,
+            "ParentKey": null,
+            "IsActive": true,
+            "FeedType": "Processes",
+            "Id": 4
+        }
+    ]
+}
